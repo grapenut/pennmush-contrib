@@ -4,90 +4,137 @@
 
 #include "npc.h"
 
+int npc_match_reply(dbref npc, dbref player, const char *reply)
+{
+  char node[BUFFER_LEN];
+  char buff[BUFFER_LEN];
+  char list[BUFFER_LEN];
+  char *bp, *np, *lp, *rp;
+  
+  lp = list;
+  rp = reply;
+  
+  /* run through reply and copy words to list */
+  
+  
+  if (!RealGoodObject(npc) || !RealGoodObject(player))
+    return 0;
+  
+  if (!IsNPC(npc))
+    return 0;
+  
+  strcpy(node, npc_get_player_node(npc, player));
+  
+  bp = buff;
+  safe_str("DIALOG`", buff, &bp);
+  safe_str(node, buff, &bp);
+  safe_str("`REPLY`*", buff, &bp);
 
-int npc_match_reply(dbref npc, dbref player, 
+  return 1;  
+}
 
 
 /* find out which dialog node an player is on */
-int npc_get_player_node(dbref npc, dbref player)
+const char *npc_get_player_node(dbref npc, dbref player)
 {
-  ATTR *a;
+  static char node[BUFFER_LEN];
   char buff[BUFFER_LEN];
-  char *bp;
+  char *bp, *np;
   time_t ntime;
-  int n;
+  ATTR *a;
   
   if (!RealGoodObject(npc) || !RealGoodObject(player))
-    return NPC_NODE_ERROR;
+    return NULL;
 
   if (!IsNPC(npc))
-    return NPC_NODE_ERROR;
+    return NULL;
 
-  STARTBUF;
-  safe_str("NODE`", buff, &bp);
+  bp = buff;
+  safe_str("_DIALOG`", buff, &bp);
   safe_dbref(player, buff, &bp);
-  ENDBUF;
+  *bp = '\0';
 
   a = atr_get_noparent(npc, buff);
   if (!a) {
     /* there was no attribute set, set node to default */
-    npc_set_player_node(npc, player, NPC_NODE_DEFAULT);
-    return NPC_NODE_DEFAULT;
+    np = node;
+    safe_str(NPC_NODE_DEFAULT, node, &np);
+    *np = '\0';
+    npc_set_player_node(npc, player, node);
+    return node;
   }
 
   /* read the attribute so we can get the node and timestamp */
-  STARTBUF;
+  bp = buff;
   safe_str(atr_value(a), buff, &bp);
-  ENDBUF;
+  *bp = '\0';
   
-  n = parse_int(buff, &bp, 10);
-  if (*bp != ':') {
-    /* there's no timestamp attached, set node to default */
-    npc_set_player_node(npc, player, NPC_NODE_DEFAULT);
-    return NPC_NODE_DEFAULT;
+  ntime = parse_int(buff, &bp, 10);
+  if (!bp || *bp != ':') {
+    /* there's no valid node with timestamp attached, set node to default */
+    np = node;
+    safe_str(NPC_NODE_DEFAULT, node, &np);
+    *np = '\0';
+    npc_set_player_node(npc, player, node);
+    return node;
+  }
+  
+  if ((mudtime - ntime) > NPC_TIMEOUT) {
+    /* the timestamp was blank or too old, set node to default */
+    np = node;
+    safe_str(NPC_NODE_DEFAULT, node, &np);
+    *np = '\0';
+    npc_set_player_node(npc, player, node);
+    return node;
   }
   
   bp++;
-  ntime = parse_int(bp, NULL, 10);
-  if ((mudtime - ntime) > NPC_TIMEOUT) {
-    /* the timestamp was blank or too old, set node to default */
-    npc_set_player_node(npc, player, NPC_NODE_DEFAULT);
-    return NPC_NODE_DEFAULT;
+  if (bp > buff+BUFFER_LEN-1 || *bp == '\0') {
+    /* there's no valid node, set node to default */
+    np = node;
+    safe_str(NPC_NODE_DEFAULT, node, &np);
+    *np = '\0';
+    npc_set_player_node(npc, player, node);
+    return node;
   }
   
+  np = node;
+  safe_str(bp, node, &np);
+  *np = '\0';
+  
   /* timestamp checks out, return the node */
-  return n;
+  return node;
 }
 
 /* set a player's dialog node on an npc */
-void npc_set_player_node(dbref npc, dbref player, int node)
+void npc_set_player_node(dbref npc, dbref player, const char *node)
 {
+  char atr[BUFFER_LEN];
   char buff[BUFFER_LEN];
-  char buff2[BUFFER_LEN];
   char *bp;
   
   if (!RealGoodObject(npc) || !RealGoodObject(player))
     return;
   
-  STARTBUF;
-  safe_str("NODE`", buff, &bp);
-  safe_dbref(player, buff, &bp);
-  ENDBUF;
+  bp = atr;
+  safe_str("_DIALOG`", atr, &bp);
+  safe_dbref(player, atr, &bp);
+  *bp = '\0';
   
   /* invalid node means to clear the attribute */
-  if (node < 0) {
-    atr_clr(npc, buff, npc);
+  if (!node || !*node) {
+    atr_clr(npc, atr, npc);
     return;
   }
   
   /* set the node state and current time */
-  STARTBUF2;
-  safe_str(unparse_integer(node), buff2, &bp);
-  safe_chr(':', buff2, &bp);
-  safe_str(unparse_integer(mudtime), buff2, &bp);
-  ENDBUF;
+  bp = buff;
+  safe_str(unparse_integer(mudtime), buff, &bp);
+  safe_chr(':', buff, &bp);
+  safe_str(node, buff, &bp);
+  *bp = '\0';
   
-  atr_add(npc, buff, buff2, npc, 0);
+  atr_add(npc, atr, buff, npc, 0);
   return;  
 }
 
